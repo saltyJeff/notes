@@ -13,8 +13,8 @@ $(function(){
   }
 
   btn.click(function(){
-    $.post("/addNotes",{task: inpbox.val(), done: false}, refresh);
+    $.post("/notes",{task: inpbox.val(), done: false}, refresh);
   })
 
-  $.get('/fetchNotes', refresh);
+  $.get('/notes', refresh);
 })

@@ -1,15 +1,23 @@
 const express = require('express');
 const fs = require('fs');
+const mkdirp = require('mkdirp');
 const bodyParser = require('body-parser');
+const path = require('path');
 
 const app = express();
+
+// Create database directory on local if not existing
+mkdirp("db", function (err){
+    if (err) return cb(err);
+});
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: true}));
 
 var notes = [];
 
-fs.readFile('notes.txt', function(err, data){
+// read database file from local to create initial data
+fs.readFile('db/notes.json', function(err, data){
   if(data){
     let parsedData = JSON.parse(data);
     if(typeof parsedData == "object"){
@@ -18,17 +26,18 @@ fs.readFile('notes.txt', function(err, data){
   }
 });
 
+// serve static content from under /public/ dir
 app.use('/', express.static(__dirname + "/public/"));
 
-app.post('/addNotes', function(req, res){
+app.post('/notes', function(req, res){
   notes.push(req.body);
-  fs.writeFile('notes.txt', JSON.stringify(notes), function(err){
+  fs.writeFile('db/notes.json', JSON.stringify(notes), { flag: 'w' }, function(err){
     if(err) throw err;
   })
   res.send(notes);
 });
 
-app.get('/fetchNotes', function(req, res){
+app.get('/notes', function(req, res){
   res.send(notes);
 });
 
