@@ -3,44 +3,79 @@ const fs = require('fs');
 const mkdirp = require('mkdirp');
 const bodyParser = require('body-parser');
 const path = require('path');
+const MongoClient = require('mongodb').MongoClient;
 
 const app = express();
+const url = 'mongodb://localhost:27017';
+const dbName = 'notes';
 
-// Create database directory on local if not existing
-mkdirp("db", function (err){
-    if (err) return cb(err);
+let noteCollection = null;
+let notes = [];
+
+// Connect to DB and set up initial data
+MongoClient.connect(url, function(err, client) {
+  if(err) {
+    throw new Error("DB connection failed");
+  }
+  console.log("Connected successfully to database");
+  const db = client.db(dbName);
+  noteCollection = db.collection('notes');
+  noteCollection.find({}).toArray(function(err, docs) {
+    if(err) {
+      throw err;
+    }
+    notes = docs;
+  });
 });
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: true}));
 
-var notes = [];
-
-// read database file from local to create initial data
-fs.readFile('db/notes.json', function(err, data){
-  if(data){
-    let parsedData = JSON.parse(data);
-    if(typeof parsedData == "object"){
-      notes = parsedData;
-    }
-  }
-});
-
 // serve static content from under /public/ dir
 app.use('/', express.static(__dirname + "/public/"));
 
-app.post('/notes', function(req, res){
+let clients = []; //an array of all clients listening to the server
+
+app.post('/notes', function(req, res) {
+  if(!noteCollection) {
+    res.status(500);
+    res.send('Internal Server Error: DB collection not initialized');
+    return;
+  }
   notes.push(req.body);
-  fs.writeFile('db/notes.json', JSON.stringify(notes), { flag: 'w' }, function(err){
-    if(err) throw err;
-  })
-  res.send(notes);
+  noteCollection.insertOne(req.body, function(err, result) {
+    if(err) {
+      res.status(500);
+      res.send('Internal Server Error: DB did not accept adding the note');
+      return;
+    }
+    for(let client of clients) {
+      client.write(makeNoteSSE(req.body));
+    }
+    res.sendStatus(200);
+  });
 });
 
-app.get('/notes', function(req, res){
-  res.send(notes);
+app.get('/notes', function(req, res) {
+  if(!noteCollection) {
+    res.status(500);
+    res.send("Internal Server Error: DB collection not initialized");
+    return;
+  }
+  req.socket.setTimeout(Number.MAX_VALUE);
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  });
+  for(let note of notes) {
+    res.write(makeNoteSSE(note));
+  }
+  clients.push(res);
 });
-
+function makeNoteSSE(data) {
+  return "data: "+JSON.stringify(data)+"\n\n";
+}
 app.listen(4000, function(){
   console.log("Server started at port 4000");
 });
